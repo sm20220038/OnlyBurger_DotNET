@@ -1,0 +1,92 @@
+@OnlyBurger.Api_HostAddress = http://localhost:5169
+
+### Browse the menu (public)
+GET {{OnlyBurger.Api_HostAddress}}/api/products
+Accept: application/json
+
+###
+
+### Log in as the seeded admin -> copy the "token" from the response
+# @name adminLogin
+POST {{OnlyBurger.Api_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "usernameOrEmail": "admin",
+  "password": "Admin123!"
+}
+
+###
+@adminToken = {{adminLogin.response.body.token}}
+
+### Register a new customer -> also returns a token
+# @name register
+POST {{OnlyBurger.Api_HostAddress}}/api/auth/register
+Content-Type: application/json
+
+{
+  "username": "alice",
+  "email": "alice@example.com",
+  "password": "Passw0rd!"
+}
+
+###
+@userToken = {{register.response.body.token}}
+
+### Admin: create a product
+POST {{OnlyBurger.Api_HostAddress}}/api/products
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Veggie Burger",
+  "description": "Plant-based patty with fresh greens.",
+  "price": 6.20
+}
+
+### Customer: add products to the cart
+POST {{OnlyBurger.Api_HostAddress}}/api/cart/items
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{
+  "productId": 1,
+  "quantity": 2
+}
+
+### Customer: view the cart
+GET {{OnlyBurger.Api_HostAddress}}/api/cart
+Authorization: Bearer {{userToken}}
+
+### Customer: create an order from the cart
+# @name createOrder
+POST {{OnlyBurger.Api_HostAddress}}/api/orders
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{
+  "deliveryLocation": "123 Main St, Apt 4"
+}
+
+###
+@orderId = {{createOrder.response.body.id}}
+
+### Customer: list my orders
+GET {{OnlyBurger.Api_HostAddress}}/api/orders/mine
+Authorization: Bearer {{userToken}}
+
+### Customer: simulate payment
+POST {{OnlyBurger.Api_HostAddress}}/api/orders/{{orderId}}/pay
+Authorization: Bearer {{userToken}}
+
+### Admin: list all orders
+GET {{OnlyBurger.Api_HostAddress}}/api/orders
+Authorization: Bearer {{adminToken}}
+
+### Admin: approve the order
+POST {{OnlyBurger.Api_HostAddress}}/api/orders/{{orderId}}/approve
+Authorization: Bearer {{adminToken}}
+
+### Admin: reject an order (use a different pending order id)
+POST {{OnlyBurger.Api_HostAddress}}/api/orders/{{orderId}}/reject
+Authorization: Bearer {{adminToken}}
