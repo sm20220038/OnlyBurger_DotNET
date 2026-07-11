@@ -1,6 +1,6 @@
 using System.Security.Claims;
-using OnlyBurger.Api.Common.Exceptions;
-using OnlyBurger.Api.Domain.Enums;
+using OnlyBurger.Infrastructure.Common.Exceptions;
+using OnlyBurger.Domain.Enums;
 
 namespace OnlyBurger.Api.Auth;
 

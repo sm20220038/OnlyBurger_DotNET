@@ -1,9 +1,23 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { api } from '../api/client'
+import { createOrderHubConnection, ORDER_UPDATED_EVENT } from '../api/orderHub'
 import { formatDateTime, formatPrice } from '../utils/format'
 import StatusBadge from '../components/StatusBadge'
+import DeliveryTracker from '../components/DeliveryTracker'
 import Message from '../components/Message'
+
+// Delivery-based views. "Active" hides delivered orders so the list stays focused on
+// what's still on its way; "Delivered" brings the completed ones back.
+const FILTERS = ['Active', 'Delivered', 'All']
+
+const isDelivered = (order) => order.deliveryStatus === 'Delivered'
+
+function matchesFilter(order, filter) {
+  if (filter === 'Active') return !isDelivered(order)
+  if (filter === 'Delivered') return isDelivered(order)
+  return true
+}
 
 export default function OrdersPage() {
   const location = useLocation()
@@ -13,6 +27,8 @@ export default function OrdersPage() {
   const [notice, setNotice] = useState(location.state?.placed ? 'Your order has been placed.' : '')
   const [editing, setEditing] = useState(null)
   const [editValue, setEditValue] = useState('')
+  const [liveOrderId, setLiveOrderId] = useState(null)
+  const [filter, setFilter] = useState('Active')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -29,6 +45,35 @@ export default function OrdersPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  // Live order/delivery updates over SignalR. When the backend pushes an updated order,
+  // merge it into the list in place — no refresh needed.
+  const connectionRef = useRef(null)
+  useEffect(() => {
+    const connection = createOrderHubConnection()
+    connectionRef.current = connection
+
+    connection.on(ORDER_UPDATED_EVENT, (updated) => {
+      setOrders((current) => {
+        const exists = current.some((o) => o.id === updated.id)
+        return exists
+          ? current.map((o) => (o.id === updated.id ? updated : o))
+          : [updated, ...current]
+      })
+      // Briefly highlight the order that just changed.
+      setLiveOrderId(updated.id)
+      setTimeout(() => setLiveOrderId((id) => (id === updated.id ? null : id)), 2500)
+    })
+
+    connection.start().catch(() => {
+      /* tracking is a live enhancement; the page still works without it */
+    })
+
+    return () => {
+      connection.off(ORDER_UPDATED_EVENT)
+      connection.stop()
+    }
+  }, [])
 
   const run = async (action) => {
     setError('')
@@ -52,6 +97,13 @@ export default function OrdersPage() {
     })
   }
 
+  const counts = {
+    Active: orders.filter((o) => matchesFilter(o, 'Active')).length,
+    Delivered: orders.filter((o) => matchesFilter(o, 'Delivered')).length,
+    All: orders.length,
+  }
+  const visibleOrders = orders.filter((o) => matchesFilter(o, filter))
+
   return (
     <section>
       <h1>My orders</h1>
@@ -63,12 +115,36 @@ export default function OrdersPage() {
       ) : orders.length === 0 ? (
         <p className="muted">You have not placed any orders yet.</p>
       ) : (
+        <>
+          <div className="filter-bar">
+            {FILTERS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className={`filter-chip ${filter === option ? 'active' : ''}`}
+                onClick={() => setFilter(option)}
+              >
+                {option} ({counts[option]})
+              </button>
+            ))}
+          </div>
+
+          {visibleOrders.length === 0 ? (
+            <p className="muted">
+              {filter === 'Delivered'
+                ? 'No delivered orders yet.'
+                : 'No active orders — everything has been delivered.'}
+            </p>
+          ) : (
         <div className="order-list">
-          {orders.map((order) => {
+          {visibleOrders.map((order) => {
             const isPending = order.status === 'Pending'
             const isUnpaid = order.paymentStatus === 'Unpaid'
             return (
-              <article key={order.id} className="order-card">
+              <article
+                key={order.id}
+                className={`order-card ${liveOrderId === order.id ? 'order-card-live' : ''}`}
+              >
                 <header className="order-head">
                   <div>
                     <h3>Order #{order.id}</h3>
@@ -79,6 +155,8 @@ export default function OrdersPage() {
                     <StatusBadge value={order.paymentStatus} />
                   </div>
                 </header>
+
+                {order.status === 'Approved' && <DeliveryTracker status={order.deliveryStatus} />}
 
                 <ul className="order-items">
                   {order.items.map((item) => (
@@ -153,6 +231,8 @@ export default function OrdersPage() {
             )
           })}
         </div>
+          )}
+        </>
       )}
     </section>
   )

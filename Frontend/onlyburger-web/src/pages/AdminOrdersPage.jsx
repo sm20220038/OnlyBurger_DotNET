@@ -1,10 +1,20 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
+import { createOrderHubConnection, ADMIN_ORDERS_CHANGED_EVENT } from '../api/orderHub'
 import { formatDateTime, formatPrice } from '../utils/format'
 import StatusBadge from '../components/StatusBadge'
 import Message from '../components/Message'
 
 const FILTERS = ['All', 'Pending', 'Approved', 'Rejected']
+
+// The delivery pipeline an admin walks an approved order through.
+const DELIVERY_STEPS = ['Preparing', 'OutForDelivery', 'Delivered']
+const DELIVERY_LABELS = {
+  Preparing: 'Mark preparing',
+  OutForDelivery: 'Mark on the way',
+  Delivered: 'Mark delivered',
+}
+const DELIVERY_ORDER = ['Pending', 'Preparing', 'OutForDelivery', 'Delivered']
 
 export default function AdminOrdersPage() {
   const [orders, setOrders] = useState([])
@@ -26,6 +36,27 @@ export default function AdminOrdersPage() {
 
   useEffect(() => {
     load()
+  }, [load])
+
+  // Live refresh: when a customer places a new order, the backend pushes to all admins.
+  // Reload the list on that signal so new orders appear without a manual refresh.
+  const connectionRef = useRef(null)
+  useEffect(() => {
+    const connection = createOrderHubConnection()
+    connectionRef.current = connection
+
+    connection.on(ADMIN_ORDERS_CHANGED_EVENT, () => {
+      load()
+    })
+
+    connection.start().catch(() => {
+      /* live refresh is an enhancement; the page still works without it */
+    })
+
+    return () => {
+      connection.off(ADMIN_ORDERS_CHANGED_EVENT)
+      connection.stop()
+    }
   }, [load])
 
   const run = async (action) => {
@@ -71,11 +102,18 @@ export default function AdminOrdersPage() {
                   <h3>Order #{order.id}</h3>
                   <span className="muted">
                     Customer #{order.userId} | {formatDateTime(order.orderDateTime)}
+                    {order.customerPhone && (
+                      <>
+                        {' | '}
+                        <a href={`tel:${order.customerPhone}`}>📞 {order.customerPhone}</a>
+                      </>
+                    )}
                   </span>
                 </div>
                 <div className="order-badges">
                   <StatusBadge value={order.status} />
                   <StatusBadge value={order.paymentStatus} />
+                  {order.status === 'Approved' && <StatusBadge value={order.deliveryStatus} />}
                 </div>
               </header>
 
@@ -111,6 +149,25 @@ export default function AdminOrdersPage() {
                   >
                     Reject
                   </button>
+                </div>
+              )}
+
+              {order.status === 'Approved' && (
+                <div className="order-actions">
+                  {DELIVERY_STEPS.map((step) => {
+                    const done = DELIVERY_ORDER.indexOf(order.deliveryStatus) >= DELIVERY_ORDER.indexOf(step)
+                    return (
+                      <button
+                        key={step}
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        disabled={done}
+                        onClick={() => run(() => api.setDeliveryStatus(order.id, step))}
+                      >
+                        {DELIVERY_LABELS[step]}
+                      </button>
+                    )
+                  })}
                 </div>
               )}
             </article>

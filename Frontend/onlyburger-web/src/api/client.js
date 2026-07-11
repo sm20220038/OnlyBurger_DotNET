@@ -56,8 +56,12 @@ export const api = {
   // Auth
   login: (usernameOrEmail, password) =>
     request('/api/auth/login', { method: 'POST', body: { usernameOrEmail, password }, auth: false }),
-  register: (username, email, password) =>
-    request('/api/auth/register', { method: 'POST', body: { username, email, password }, auth: false }),
+  register: (username, email, phoneNumber, password) =>
+    request('/api/auth/register', {
+      method: 'POST',
+      body: { username, email, phoneNumber, password },
+      auth: false,
+    }),
 
   // Products
   getProducts: () => request('/api/products', { auth: false }),
@@ -87,4 +91,6 @@ export const api = {
   getAllOrders: () => request('/api/orders'),
   approveOrder: (id) => request(`/api/orders/${id}/approve`, { method: 'POST' }),
   rejectOrder: (id) => request(`/api/orders/${id}/reject`, { method: 'POST' }),
+  setDeliveryStatus: (id, status) =>
+    request(`/api/orders/${id}/delivery-status`, { method: 'POST', body: { status } }),
 }

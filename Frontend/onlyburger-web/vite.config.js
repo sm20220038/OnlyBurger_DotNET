@@ -12,6 +12,13 @@ export default defineConfig({
         target: 'http://localhost:5169',
         changeOrigin: true,
       },
+      // SignalR hub for live order/delivery tracking. `ws: true` lets the WebSocket
+      // upgrade pass through to the backend.
+      '/hubs': {
+        target: 'http://localhost:5169',
+        changeOrigin: true,
+        ws: true,
+      },
     },
   },
 })

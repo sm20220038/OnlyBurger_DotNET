@@ -2,8 +2,8 @@
 
 An ASP.NET Core Web API for online ordering of burgers and fast food. It supports two
 roles — **Customer** and **Administrator (restaurant staff)** — with JWT authentication,
-role-based authorization, a SQL Server database via EF Core, and a clean **CQRS**
-architecture.
+role-based authorization, a SQLite database via EF Core, real-time updates over SignalR, and
+a clean **CQRS** architecture split across **Domain / Infrastructure / Presentation** projects.
 
 ---
 
@@ -12,16 +12,21 @@ architecture.
 | Concern            | Choice                                                        |
 | ------------------ | ------------------------------------------------------------- |
 | Framework          | ASP.NET Core Web API (.NET 10)                                |
-| Persistence        | Entity Framework Core 10 + Microsoft SQL Server               |
+| Persistence        | Entity Framework Core 10 + SQLite                             |
 | Auth               | JWT bearer tokens, role-based authorization (`User`, `Admin`) |
 | Password storage   | PBKDF2 (SHA-256) — built-in, no third-party dependency        |
-| Architecture       | CQRS with a lightweight custom dispatcher (one handler each)  |
+| Architecture       | CQRS with **MediatR** + **Repository / Unit of Work** over EF Core |
+| Real-time          | **SignalR** (live order + delivery tracking)                  |
 | API docs / testing | Swagger UI (with bearer auth)                                 |
 
-> **Why a custom CQRS dispatcher instead of MediatR?** It keeps the project free of
-> external messaging libraries, makes the command/query separation explicit and easy to
-> read, and demonstrates the pattern from first principles. See
-> [`Cqrs/`](OnlyBurger.Api/Cqrs).
+> **CQRS is implemented with [MediatR](https://github.com/jbogard/MediatR).** Every write is a
+> `IRequest<T>` command and every read is an `IRequest<T>` query, each with a single
+> `IRequestHandler`. Controllers depend only on `IMediator`. Handlers never touch the
+> `DbContext` directly — they go through the **Repository / Unit of Work** layer
+> (interfaces in the **Domain** project under [`Repositories/`](OnlyBurger.Domain/Repositories),
+> EF Core implementations in **Infrastructure** under [`Data/Repositories/`](OnlyBurger.Infrastructure/Data/Repositories)
+> + [`Data/UnitOfWork.cs`](OnlyBurger.Infrastructure/Data/UnitOfWork.cs)), so a handler can touch
+> several repositories and commit them together with one `SaveChangesAsync`.
 
 > **Frontend:** a React + Vite single-page app lives in [`onlyburger-web/`](onlyburger-web).
 > Start this API first, then follow [onlyburger-web/README.md](onlyburger-web/README.md).
@@ -32,36 +37,54 @@ architecture.
 
 ## Architecture (CQRS)
 
-Every state change is a **Command**; every read is a **Query**. Each has exactly one
-handler. Controllers depend only on `IDispatcher`, which routes a message to its handler.
+Every state change is a **Command**; every read is a **Query** — each is a MediatR
+`IRequest<T>` with exactly one `IRequestHandler`. Controllers depend only on `IMediator`,
+which routes the request to its handler. Handlers depend on `IUnitOfWork`, never on the
+`DbContext` directly.
 
 ```
-HTTP Controller ──> IDispatcher ──> ICommandHandler<TCommand,TResult>   (writes)
-                                └──> IQueryHandler<TQuery,TResult>       (reads)
+HTTP Controller ──> IMediator ──> IRequestHandler<TRequest,TResult>   (command or query)
                                           │
-                                          └──> AppDbContext (EF Core / SQL Server)
+                                          └──> IUnitOfWork ──> IRepository<T> ──> EF Core (SQLite)
+                                                    │
+                                                    └──> SaveChangesAsync()  (one transaction)
 ```
 
-Handlers are auto-discovered and registered at startup
-([`CqrsRegistration.AddCqrs`](OnlyBurger.Api/Cqrs/CqrsRegistration.cs)).
+Handlers are auto-discovered and registered at startup by MediatR
+(`AddMediatR(... RegisterServicesFromAssembly ...)` in [`Program.cs`](OnlyBurger.Api/Program.cs)).
 
-### Project layout
+### Project layout (Clean Architecture — 3 projects)
+
+Dependencies point inward only: **Presentation → Infrastructure → Domain**. The Domain project
+has no dependencies at all.
 
 ```
-OnlyBurger.Api/
-├── Auth/            JWT service, PBKDF2 password hasher, current-user accessor
-├── Common/          App exceptions + global exception-handling middleware
-├── Controllers/     Auth, Products, Cart, Orders
-├── Cqrs/            ICommand/IQuery markers, handlers, dispatcher, registration
-├── Data/            AppDbContext, DbInitializer (migrate + seed), Migrations/
-├── Domain/          Entities (User, Product, Order, OrderItem, CartItem) + Enums
-└── Features/        One folder per area; each command/query lives with its handler
-    ├── Auth/        RegisterUserCommand, LoginUserCommand
-    ├── Products/    Create/Update/Delete commands, GetProducts/GetProductById queries
-    ├── Cart/        Add/Update/Remove commands, GetCart query
-    └── Orders/      Create/Update/Delete/Approve/Reject/Pay commands,
-                     GetOrders/GetOrderById/GetUserOrders queries
+Backend/
+├── OnlyBurger.Domain/            ← pure domain, no dependencies
+│   ├── Entities/                 User, Product, Cart, CartItem, Order, OrderItem, Student
+│   ├── Enums/                    CartStatus, OrderStatus, PaymentStatus, DeliveryStatus, UserRole
+│   └── Repositories/             IRepository<T>, IUnitOfWork, per-entity repository interfaces
+│
+├── OnlyBurger.Infrastructure/    ← references Domain (EF Core, MediatR, SignalR)
+│   ├── Data/                     AppDbContext, UnitOfWork, Repositories/, DbInitializer, Migrations/
+│   ├── Features/                 CQRS commands/queries + MediatR handlers + DTOs
+│   │   ├── Auth/                 RegisterUserCommand, LoginUserCommand
+│   │   ├── Products/             Create/Update/Delete commands, GetProducts/GetProductById queries
+│   │   ├── Cart/                 Add/Update/Remove commands, GetCart query
+│   │   └── Orders/               Create/Update/Delete/Approve/Reject/Pay/UpdateDeliveryStatus + queries
+│   ├── Realtime/                 SignalR OrderTrackingHub + IOrderNotifier (live order/delivery push)
+│   ├── Auth/                     JWT token service + PBKDF2 password hasher
+│   └── Common/Exceptions/        Application exception types
+│
+└── OnlyBurger.Api/               ← references Infrastructure (the web host)
+    ├── Controllers/              Auth, Products, Cart, Orders (depend only on IMediator)
+    ├── Auth/                     ICurrentUser + CurrentUser (reads the caller from HttpContext)
+    ├── Common/Middleware/        Global exception-handling middleware (→ problem+json)
+    └── Program.cs                DI wiring, JWT bearer, CORS, Swagger, SignalR hub mapping
 ```
+
+Web-pipeline concerns that read `HttpContext` (the current-user accessor and the exception
+middleware) live in **Presentation**; the reusable JWT/hashing services stay in Infrastructure.
 
 The commands and queries map directly to the assignment spec:
 
@@ -102,11 +125,13 @@ https://localhost:<port>/swagger
 
 ### Managing migrations manually (optional)
 
+The `DbContext` and migrations live in the **Infrastructure** project, so point `dotnet ef` at it
+with the **Api** project as the startup host (run from the `Backend/` folder):
+
 ```bash
 dotnet tool install --global dotnet-ef      # once
-cd OnlyBurger.Api
-dotnet ef migrations add <Name>
-dotnet ef database update
+dotnet ef migrations add <Name>  --project OnlyBurger.Infrastructure --startup-project OnlyBurger.Api
+dotnet ef database update        --project OnlyBurger.Infrastructure --startup-project OnlyBurger.Api
 ```
 
 ---
@@ -173,8 +198,9 @@ seeded account (or by promoting a user directly in the database).
 | DELETE | `/{id}`          | Owner (pending)   | Delete a pending order                     |
 | POST   | `/{id}/pay`      | Owner             | Simulate payment                           |
 | GET    | `/`              | Admin             | List **all** orders                        |
-| POST   | `/{id}/approve`  | Admin             | Approve a pending order                    |
-| POST   | `/{id}/reject`   | Admin             | Reject a pending order                     |
+| POST   | `/{id}/approve`  | Admin             | Approve a pending order (→ live push)      |
+| POST   | `/{id}/reject`   | Admin             | Reject a pending order (→ live push)       |
+| POST   | `/{id}/delivery-status` | Admin      | Advance delivery status (→ live push)      |
 
 See [`OnlyBurger.Api.http`](OnlyBurger.Api/OnlyBurger.Api.http) for ready-to-run sample
 requests.
@@ -198,12 +224,28 @@ requests.
 
 - **User** — `Id, Username, Email, PasswordHash, Role`
 - **Product** — `Id, Name, Description, Price`
-- **Order** — `Id, UserId, DeliveryLocation, OrderDateTime, TotalPrice, Status, PaymentStatus`
+- **Cart** — `Id, UserId, Status, CreatedAt, CheckedOutAt`
+- **CartItem** — `Id, CartId, ProductId, Quantity`
+- **Order** — `Id, UserId, CartId, DeliveryLocation, OrderDateTime, TotalPrice, Status, PaymentStatus, DeliveryStatus`
 - **OrderItem** — `Id, OrderId, ProductId, Quantity, UnitPrice`
-- **CartItem** — `Id, UserId, ProductId, Quantity`
 
-Enums: `OrderStatus { Pending, Approved, Rejected }`,
-`PaymentStatus { Unpaid, Paid }`, `UserRole { User, Admin }` (stored as text in SQL Server).
+Enums (stored as text): `CartStatus { Active, CheckedOut }`,
+`OrderStatus { Pending, Approved, Rejected }`, `PaymentStatus { Unpaid, Paid }`,
+`DeliveryStatus { Pending, Preparing, OutForDelivery, Delivered }`, `UserRole { User, Admin }`.
+
+**Cart lifecycle & Cart↔Order relation.** The cart is persisted in the database (it survives a
+refresh or a server restart). A user has exactly one `Active` cart at a time; at checkout that
+cart is marked `CheckedOut` and linked 1:1 to the `Order` it produced (`Order.CartId`) rather than
+being deleted, so it is kept as history. See **[docs/architecture.md](docs/architecture.md)** for
+the full ER, cart-lifecycle, delivery-status, and SignalR diagrams.
+
+## Real-time delivery tracking (SignalR)
+
+An approved order moves through `Preparing → OutForDelivery → Delivered`. Staff advance the status
+via `POST /api/orders/{id}/delivery-status`; the change is pushed to the owning customer over the
+**`OrderTrackingHub`** SignalR hub at **`/hubs/orders`** (authenticated with the JWT sent as an
+`access_token` query value). The React "My orders" page listens for the `OrderUpdated` event and
+re-renders live — no polling. Approving/rejecting an order pushes an update the same way.
 
 ---
 

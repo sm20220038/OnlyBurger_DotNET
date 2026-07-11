@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using OnlyBurger.Api.Cqrs;
-using OnlyBurger.Api.Features.Auth;
+using MediatR;
+using OnlyBurger.Infrastructure.Features.Auth;
 
 namespace OnlyBurger.Api.Controllers;
 
@@ -10,17 +10,17 @@ namespace OnlyBurger.Api.Controllers;
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
 {
-    private readonly IDispatcher _dispatcher;
+    private readonly IMediator _mediator;
 
-    public AuthController(IDispatcher dispatcher) => _dispatcher = dispatcher;
+    public AuthController(IMediator mediator) => _mediator = mediator;
 
     /// <summary>Registers a new customer account and returns a JWT.</summary>
     [AllowAnonymous]
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request, CancellationToken cancellationToken)
     {
-        var result = await _dispatcher.Send(
-            new RegisterUserCommand(request.Username, request.Email, request.Password), cancellationToken);
+        var result = await _mediator.Send(
+            new RegisterUserCommand(request.Username, request.Email, request.PhoneNumber, request.Password), cancellationToken);
         return Ok(result);
     }
 
@@ -29,7 +29,7 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     public async Task<ActionResult<AuthResponse>> Login(LoginRequest request, CancellationToken cancellationToken)
     {
-        var result = await _dispatcher.Send(
+        var result = await _mediator.Send(
             new LoginUserCommand(request.UsernameOrEmail, request.Password), cancellationToken);
         return Ok(result);
     }

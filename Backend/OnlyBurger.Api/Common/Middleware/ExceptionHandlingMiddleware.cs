@@ -1,5 +1,5 @@
 using System.Text.Json;
-using OnlyBurger.Api.Common.Exceptions;
+using OnlyBurger.Infrastructure.Common.Exceptions;
 
 namespace OnlyBurger.Api.Common.Middleware;
 

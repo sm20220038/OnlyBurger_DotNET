@@ -671,6 +671,87 @@ main.container {
   border-color: #dddddd;
 }
 
+/* Delivery status badges */
+.status-preparing {
+  background: #fff3e6;
+  color: #9a5b00;
+  border-color: #f4d3a8;
+}
+
+.status-outfordelivery {
+  background: #e9f0fd;
+  color: #2b4fa0;
+  border-color: #c3d3f4;
+}
+
+.status-delivered {
+  background: #eafaf0;
+  color: #1d6b3f;
+  border-color: #bfe8cf;
+}
+
+/* Live delivery tracker (customer "My orders") */
+.delivery-tracker {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  margin: 0.5rem 0 0.25rem;
+  flex-wrap: wrap;
+}
+
+.delivery-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #999;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+}
+
+.delivery-step:not(:last-child)::after {
+  content: '→';
+  margin-left: 0.35rem;
+  color: #ccc;
+}
+
+.delivery-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #d5d5d5;
+}
+
+.delivery-step-done {
+  color: #1d6b3f;
+}
+.delivery-step-done .delivery-dot {
+  background: #2ea36a;
+}
+
+.delivery-step-active {
+  color: #2b4fa0;
+}
+.delivery-step-active .delivery-dot {
+  background: #2b4fa0;
+  box-shadow: 0 0 0 4px rgba(43, 79, 160, 0.15);
+}
+
+/* Flash an order card when a live update arrives */
+.order-card-live {
+  animation: order-flash 2.2s ease-out;
+}
+
+@keyframes order-flash {
+  0% {
+    box-shadow: 0 0 0 3px rgba(46, 163, 106, 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(46, 163, 106, 0);
+  }
+}
+
 /* Admin */
 .admin-layout {
   display: grid;

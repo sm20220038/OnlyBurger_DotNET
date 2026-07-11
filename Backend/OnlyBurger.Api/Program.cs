@@ -1,18 +1,24 @@
 using System.Text;
+using MediatR;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using OnlyBurger.Api.Auth;
 using OnlyBurger.Api.Common.Middleware;
-using OnlyBurger.Api.Cqrs;
-using OnlyBurger.Api.Data;
+using OnlyBurger.Infrastructure.Auth;
+using OnlyBurger.Infrastructure.Data;
+using OnlyBurger.Domain.Repositories;
+using OnlyBurger.Infrastructure.Realtime;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // ----- Persistence -----
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// Unit of Work + repositories: handlers depend on IUnitOfWork, never on AppDbContext directly.
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
 // ----- Auth / security services -----
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection(JwtSettings.SectionName));
@@ -37,6 +43,24 @@ builder.Services
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.Key)),
             ClockSkew = TimeSpan.Zero
         };
+
+        // Browsers can't set Authorization headers on a WebSocket handshake, so the SignalR
+        // JS client sends the JWT as an `access_token` query-string value instead. Read it
+        // back for requests targeting the hub so the connection is authenticated.
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            }
+        };
     });
 builder.Services.AddAuthorization();
 
@@ -52,14 +76,25 @@ builder.Services.AddCors(options =>
                 "http://127.0.0.1:5173",
                 "http://127.0.0.1:4173")
             .AllowAnyHeader()
-            .AllowAnyMethod());
+            .AllowAnyMethod()
+            // Required for the SignalR WebSocket connection from the browser.
+            .AllowCredentials());
 });
 
-// ----- CQRS: auto-register every command/query handler -----
-builder.Services.AddCqrs();
+// ----- CQRS via MediatR: auto-register every command/query handler from the Infrastructure assembly -----
+builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(AppDbContext).Assembly));
+
+// ----- SignalR: real-time order + delivery tracking -----
+builder.Services.AddSignalR();
+builder.Services.AddScoped<IOrderNotifier, OrderNotifier>();
 
 // ----- API / Swagger -----
-builder.Services.AddControllers();
+builder.Services
+    .AddControllers()
+    // Serialize/accept enums as their readable names ("OutForDelivery") instead of numbers,
+    // so request bodies and responses stay human-readable and match the string DB storage.
+    .AddJsonOptions(options =>
+        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -116,5 +151,6 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<OrderTrackingHub>("/hubs/orders");
 
 app.Run();

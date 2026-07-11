@@ -1,4 +1,4 @@
-using OnlyBurger.Api.Domain.Enums;
+using OnlyBurger.Domain.Enums;
 
 namespace OnlyBurger.Api.Auth;
 

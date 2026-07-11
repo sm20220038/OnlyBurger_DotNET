@@ -48,10 +48,8 @@ export function CartProvider({ children }) {
 
   const clearLocal = () => setCart(EMPTY_CART)
 
-  const itemCount = useMemo(
-    () => cart.items.reduce((total, item) => total + item.quantity, 0),
-    [cart],
-  )
+  // Number of unique products in the cart (distinct line items), not the summed quantity.
+  const itemCount = useMemo(() => cart.items.length, [cart])
 
   const value = useMemo(
     () => ({ cart, itemCount, loading, refresh, addItem, updateItem, removeItem, clearLocal }),

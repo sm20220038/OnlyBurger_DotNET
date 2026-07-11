@@ -1,0 +1,13 @@
+# Normalize line endings: Git stores text files with LF, checks out with LF
+# on all platforms. Prevents CRLF/LF churn when moving between Windows & Linux.
+* text=auto eol=lf
+
+# Binary files Git should never touch
+*.db binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary

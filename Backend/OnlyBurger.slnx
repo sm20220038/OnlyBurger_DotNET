@@ -1,3 +1,5 @@
 <Solution>
+  <Project Path="OnlyBurger.Domain/OnlyBurger.Domain.csproj" />
+  <Project Path="OnlyBurger.Infrastructure/OnlyBurger.Infrastructure.csproj" />
   <Project Path="OnlyBurger.Api/OnlyBurger.Api.csproj" />
 </Solution>

@@ -9,7 +9,7 @@ export default function RegisterPage() {
   const { refresh } = useCart()
   const navigate = useNavigate()
 
-  const [form, setForm] = useState({ username: '', email: '', password: '' })
+  const [form, setForm] = useState({ username: '', email: '', phoneNumber: '', password: '' })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -20,7 +20,7 @@ export default function RegisterPage() {
     setError('')
     setBusy(true)
     try {
-      await register(form.username.trim(), form.email.trim(), form.password)
+      await register(form.username.trim(), form.email.trim(), form.phoneNumber.trim(), form.password)
       await refresh()
       navigate('/', { replace: true })
     } catch (err) {
@@ -58,6 +58,18 @@ export default function RegisterPage() {
               autoComplete="email"
               required
             />
+          </label>
+          <label className="field">
+            <span>Phone number</span>
+            <input
+              type="tel"
+              value={form.phoneNumber}
+              onChange={update('phoneNumber')}
+              autoComplete="tel"
+              placeholder="+381 64 123 4567"
+              required
+            />
+            <small className="field-hint">So the restaurant can reach you about your delivery.</small>
           </label>
           <label className="field">
             <span>Password</span>
